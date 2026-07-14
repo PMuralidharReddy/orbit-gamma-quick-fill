@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ORBIT-Gamma Quick Fill
 // @namespace    http://tampermonkey.net/
-// @version      7.0
+// @version      7.2
 // @description  Smart fill + Safe Copy Last Annotation + Draggable panel for ORBIT-Gamma
 // @author       pmred
 // @match        *://orbit-gamma*
@@ -125,7 +125,7 @@
     }
     #orbit-filler-panel.collapsed #orbit-collapse-icon { display: block; }
 
-    /* Drag handle — the header acts as the drag zone */
+    /* Drag handle */
     #orbit-panel-header {
       display: flex;
       justify-content: space-between;
@@ -159,7 +159,6 @@
       gap: 5px;
     }
 
-    /* Reset position button */
     #orbit-reset-pos-btn {
       background: none;
       border: none;
@@ -183,7 +182,7 @@
     }
     #orbit-toggle-btn:hover { color: #fff; }
 
-    /* Panel body padding */
+    /* Panel body */
     .orbit-panel-body {
       padding: 8px;
     }
@@ -234,6 +233,12 @@
       margin: 1px 1px;
       font-size: 7.5px;
       color: #d1d5db;
+    }
+
+    /* Tool Invoked chip — teal tint */
+    #orbit-snap-preview span.chip-tool {
+      background: #134e4a;
+      color: #5eead4;
     }
 
     #orbit-paste-snap-btn {
@@ -391,23 +396,20 @@
   const panel = document.createElement('div');
   panel.id = 'orbit-filler-panel';
 
-  // Restore saved position or use default top-right
   const savedPos = getSavedPosition();
   panel.style.top  = savedPos.top  + 'px';
   panel.style.left = savedPos.left + 'px';
 
-  // Collapse icon (shown when collapsed)
   const collapseIcon = document.createElement('span');
   collapseIcon.id = 'orbit-collapse-icon';
   collapseIcon.textContent = '⚡';
   panel.appendChild(collapseIcon);
 
-  // Inner wrapper
   const inner = document.createElement('div');
   inner.className = 'orbit-panel-inner';
   inner.style.position = 'relative';
 
-  // ---- HEADER (drag handle) ----
+  // ---- HEADER ----
   const header = document.createElement('div');
   header.id = 'orbit-panel-header';
 
@@ -422,7 +424,6 @@
   const headerRight = document.createElement('div');
   headerRight.className = 'orbit-header-right';
 
-  // Reset position button
   const resetPosBtn = document.createElement('button');
   resetPosBtn.id = 'orbit-reset-pos-btn';
   resetPosBtn.title = 'Reset to default position';
@@ -573,44 +574,33 @@
 
   // ============================================================
   // DRAG TO MOVE
-  // Dragging is triggered only from the header bar
-  // Position is saved to GM storage so it persists on reload
   // ============================================================
-  let isDragging   = false;
-  let dragOffsetX  = 0;
-  let dragOffsetY  = 0;
+  let isDragging  = false;
+  let dragOffsetX = 0;
+  let dragOffsetY = 0;
 
   header.addEventListener('mousedown', startDrag);
-  collapseIcon.addEventListener('mousedown', startDrag); // drag when collapsed too
+  collapseIcon.addEventListener('mousedown', startDrag);
 
   function startDrag(e) {
-    // Ignore clicks on buttons inside the header
     if (e.target.tagName === 'BUTTON') return;
-
     isDragging  = true;
     dragOffsetX = e.clientX - panel.getBoundingClientRect().left;
     dragOffsetY = e.clientY - panel.getBoundingClientRect().top;
-
     panel.classList.add('dragging');
     e.preventDefault();
   }
 
   document.addEventListener('mousemove', (e) => {
     if (!isDragging) return;
-
     let newLeft = e.clientX - dragOffsetX;
     let newTop  = e.clientY - dragOffsetY;
-
-    // Keep panel fully within viewport bounds
     const maxLeft = window.innerWidth  - panel.offsetWidth;
     const maxTop  = window.innerHeight - panel.offsetHeight;
-
     newLeft = Math.max(0, Math.min(newLeft, maxLeft));
     newTop  = Math.max(0, Math.min(newTop,  maxTop));
-
     panel.style.left = newLeft + 'px';
     panel.style.top  = newTop  + 'px';
-    // Clear right/bottom so left/top take full control
     panel.style.right  = 'auto';
     panel.style.bottom = 'auto';
   });
@@ -619,15 +609,11 @@
     if (!isDragging) return;
     isDragging = false;
     panel.classList.remove('dragging');
-    // Save position so it survives page reload
-    savePosition(
-      parseInt(panel.style.top),
-      parseInt(panel.style.left)
-    );
+    savePosition(parseInt(panel.style.top), parseInt(panel.style.left));
   });
 
   // ============================================================
-  // POSITION PERSISTENCE  (GM_setValue / GM_getValue)
+  // POSITION PERSISTENCE
   // ============================================================
   function savePosition(top, left) {
     GM_setValue('orbit_panel_top',  top);
@@ -636,8 +622,7 @@
 
   function getSavedPosition() {
     const top  = GM_getValue('orbit_panel_top',  48);
-    const left = GM_getValue('orbit_panel_left',
-                  window.innerWidth - 233); // default: top-right
+    const left = GM_getValue('orbit_panel_left', window.innerWidth - 233);
     return { top, left };
   }
 
@@ -706,6 +691,10 @@
     const rcaRadio = document.querySelector('input[name="response-accurate"]:checked');
     const hvaVal   = getSelectValue('hva-category-select');
 
+    // Tool Invoked — confirmed radio group: name="tool-accurate"
+    // IDs: ta-accurate | ta-inaccurate | ta-na | ta-cannot-judge
+    const taRadio  = document.querySelector('input[name="tool-accurate"]:checked');
+
     return {
       turnType:         getSelectValue('turn-type-select'),
       contextSwitch:    csRadio  ? csRadio.id    : null,
@@ -722,6 +711,9 @@
       negFeedback:      getSelectValue('neg-feedback-select'),
       expectedResponse: getTextValue('expected-response'),
       observations:     getTextValue('observations'),
+      // Tool Invoked (v7.2 — confirmed selectors)
+      toolInvoked:      taRadio  ? taRadio.id    : null,  // e.g. "ta-accurate"
+      toolInvokedVal:   taRadio  ? taRadio.value : '',    // e.g. "Accurate"
     };
   }
 
@@ -729,6 +721,7 @@
     const el = document.getElementById(id);
     return el ? el.value : '';
   }
+
   function getTextValue(id) {
     const el = document.getElementById(id);
     return el ? el.value : '';
@@ -748,18 +741,21 @@
     snapPreview.classList.add('has-data');
 
     const chips = [
-      snap.turnType                                              || null,
-      snap.csValue    ? 'CS:'  + snap.csValue                   : null,
-      snap.ccValue    ? 'CC:'  + snap.ccValue                   : null,
-      snap.rcaValue   ? 'RCA:' + snap.rcaValue                  : null,
-      snap.interactionType                                       || null,
-      snap.negFeedback && snap.negFeedback !== 'N/A'
-        ? 'NF:' + snap.negFeedback                              : null,
-    ].filter(Boolean);
+      { text: snap.turnType || null,                                          cls: '' },
+      { text: snap.csValue    ? 'CS:'  + snap.csValue   : null,              cls: '' },
+      { text: snap.ccValue    ? 'CC:'  + snap.ccValue   : null,              cls: '' },
+      { text: snap.rcaValue   ? 'RCA:' + snap.rcaValue  : null,              cls: '' },
+      { text: snap.interactionType || null,                                   cls: '' },
+      { text: snap.negFeedback && snap.negFeedback !== 'N/A'
+               ? 'NF:' + snap.negFeedback : null,                            cls: '' },
+      // Tool Invoked chip — teal tint (v7.2)
+      { text: snap.toolInvokedVal ? 'TI:' + snap.toolInvokedVal : null,      cls: 'chip-tool' },
+    ].filter(c => c.text);
 
     chips.forEach(chip => {
       const s = document.createElement('span');
-      s.textContent = chip;
+      if (chip.cls) s.className = chip.cls;
+      s.textContent = chip.text;
       snapPreview.appendChild(s);
     });
 
@@ -792,6 +788,10 @@
     if (snap.expectedResponse) setTextById('expected-response', snap.expectedResponse);
     if (snap.observations)     setTextById('observations',      snap.observations);
 
+    // Tool Invoked — restore radio by ID (v7.2)
+    // Possible IDs: ta-accurate | ta-inaccurate | ta-na | ta-cannot-judge
+    if (snap.toolInvoked) setRadioById(snap.toolInvoked);
+
     setStatus('⎘ Snapshot pasted!', '#f59e0b');
   }
 
@@ -804,6 +804,8 @@
     setRadioById(preset.convContext);
     setTextById('expected-response',     'N/A');
     setSelectById('neg-feedback-select', 'N/A');
+    // Tool Invoked is intentionally NOT reset by presets —
+    // it is message-specific and should only be set via snapshot.
     setStatus('✅ ' + preset.label, '#86efac');
   }
 
